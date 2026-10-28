@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pw
+      POSTGRES_DB: app_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    # IMPORTANT: Use registry.gitlab.tamk.cloud (not .com)
+    image: registry.gitlab.tamk.cloud/courses/web-software-production-5g00dm04/3009/wspa-20/server:latest
+    ports:
+      - "3001:3001"
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: app
+      PGPASSWORD: app_pw
+      PGDATABASE: app_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  client:
+    # IMPORTANT: Use registry.gitlab.tamk.cloud (not .com)
+    image: registry.gitlab.tamk.cloud/courses/web-software-production-5g00dm04/3009/wspa-20/client:latest
+    ports:
+      - "8080:80"
+    environment:
+      - API_URL=http://172.16.5.151:3001
+
+volumes:
+  db_data:

@@ -1,0 +1,177 @@
+stages:
+  - lint
+  - build
+  - test
+  - e2e
+  - publish
+  - deploy
+
+variables:
+  POSTGRES_DB: app_test_db
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: password
+  POSTGRES_HOST_AUTH_METHOD: trust
+
+.node-cache: &node-cache
+  image: node:20-alpine
+  cache:
+    key:
+      files:
+        - client/package-lock.json
+        - server/package-lock.json
+    paths:
+      - client/node_modules/
+      - server/node_modules/
+
+# -----------------------------------------------------------------------------
+# LINT STAGE
+# -----------------------------------------------------------------------------
+lint:client:
+  <<: *node-cache
+  stage: lint
+  script:
+    - cd client
+    - npm ci
+    - exit 0
+
+lint:server:
+  <<: *node-cache
+  stage: lint
+  script:
+    - cd server
+    - npm ci
+    - npm run lint
+
+# -----------------------------------------------------------------------------
+# BUILD STAGE
+# -----------------------------------------------------------------------------
+build:client:
+  <<: *node-cache
+  stage: build
+  script:
+    - cd client
+    - npm ci
+    - npm run build
+
+build:server:
+  <<: *node-cache
+  stage: build
+  script:
+    - cd server
+    - npm ci
+    - npm run build
+
+# -----------------------------------------------------------------------------
+# TEST STAGE
+# -----------------------------------------------------------------------------
+test:unit:
+  <<: *node-cache
+  stage: test
+  script:
+    - cd server
+    - npm ci
+    - npm run test -- parseNewExpense parseNewCategory toExpense
+
+test:integration:
+  <<: *node-cache
+  stage: test
+  services:
+    - name: postgres:16-alpine
+      alias: db
+  variables:
+    PGHOST: db
+    POSTGRES_HOST: db
+    PGPORT: "5432"
+    PGUSER: postgres
+    PGPASSWORD: password
+    PGDATABASE: app_test_db
+  script:
+    - apk add --no-cache postgresql-client
+    - cd server
+    - npm ci
+    - rm -f .env .env.*
+    - PGPASSWORD=password psql -h db -U postgres -d app_test_db -f ../db/init/001-schema.sql
+    - CI=true PGHOST=db POSTGRES_HOST=db PGPASSWORD=password PGDATABASE=app_test_db npx vitest --run categories.integration.test.ts expenses.integration.test.ts
+
+# -----------------------------------------------------------------------------
+# E2E STAGE
+# -----------------------------------------------------------------------------
+e2e:playwright:
+  stage: e2e
+  image: mcr.microsoft.com/playwright:v1.63.0-jammy
+  services:
+    - name: postgres:16-alpine
+      alias: db
+  variables:
+    PGHOST: db
+    POSTGRES_HOST: db
+    PGPORT: "5432"
+    PGUSER: postgres
+    PGPASSWORD: password
+    PGDATABASE: app_test_db
+  script:
+    - apt-get update && apt-get install -y postgresql-client
+    - PGPASSWORD=password psql -h db -U postgres -d app_test_db -f db/init/001-schema.sql
+    - cd server
+    - npm ci
+    - CI=true PGHOST=db POSTGRES_HOST=db PGPASSWORD=password PGDATABASE=app_test_db npx tsx src/server.ts &
+    - cd ../client
+    - npm ci
+    - npx playwright install --with-deps chromium
+    - npx playwright test
+  artifacts:
+    when: always
+    paths:
+      - client/playwright-report/
+      - client/test-results/
+    expire_in: 1 week
+
+# -----------------------------------------------------------------------------
+# PUBLISH STAGE
+# -----------------------------------------------------------------------------
+publish:server:
+  stage: publish
+  image: docker:cli
+  services:
+    - docker:dind
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE/server:$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE/server:latest" ./server
+    - docker push "$CI_REGISTRY_IMAGE/server:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE/server:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+publish:client:
+  stage: publish
+  image: docker:cli
+  services:
+    - docker:dind
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE/client:$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE/client:latest" ./client
+    - docker push "$CI_REGISTRY_IMAGE/client:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE/client:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# -----------------------------------------------------------------------------
+# DEPLOY STAGE
+# -----------------------------------------------------------------------------
+deploy:staging:
+  stage: deploy
+  image: ubuntu:latest
+  before_script:
+    - apt-get update && apt-get install -y openssh-client
+    - eval $(ssh-agent -s)
+    - chmod 400 "$SSH_PRIVATE_KEY"
+    - ssh-add "$SSH_PRIVATE_KEY"
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+  script:
+    # 1. Login using PAT (This makes it automated for the teacher)
+    - ssh -o StrictHostKeyChecking=no student@172.16.5.151 "echo $DOCKER_PAT | docker login registry.gitlab.tamk.cloud -u sadiashabnaj --password-stdin"
+    # 2. Pull and up
+    - ssh -o StrictHostKeyChecking=no student@172.16.5.151 "cd /home/student/wspa-20 && docker compose -f compose.staging.yml pull && docker compose -f compose.staging.yml up -d --force-recreate"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

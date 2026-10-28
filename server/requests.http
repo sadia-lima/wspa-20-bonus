@@ -1,0 +1,53 @@
+### Requests for the Expense Tracker API.
+### Open with the "REST Client" VS Code extension and click "Send Request"
+### above each block. The server must be running (npm run dev).
+
+@baseUrl = http://localhost:3001
+
+### Get all expenses
+GET {{baseUrl}}/api/expenses
+
+### Create an expense
+POST {{baseUrl}}/api/expenses
+Content-Type: application/json
+
+{
+  "description": "Groceries",
+  "amount": 42.50,
+  "date": "2026-08-01"
+}
+
+### Update an expense — replace REPLACE_WITH_ID with a real one from "Get all expenses"
+PUT {{baseUrl}}/api/expenses/REPLACE_WITH_ID
+Content-Type: application/json
+
+{
+  "description": "Groceries (updated)",
+  "amount": 50,
+  "date": "2026-08-05"
+}
+
+### Delete an expense — replace REPLACE_WITH_ID with a real one from "Get all expenses"
+DELETE {{baseUrl}}/api/expenses/REPLACE_WITH_ID
+
+### Get all categories
+GET {{baseUrl}}/api/categories
+
+### Create a category
+POST {{baseUrl}}/api/categories
+Content-Type: application/json
+
+{
+  "name": "Entertainment"
+}
+
+### Update a category — replace REPLACE_WITH_ID with a real one from "Get all categories"
+PUT {{baseUrl}}/api/categories/REPLACE_WITH_ID
+Content-Type: application/json
+
+{
+  "name": "Fun"
+}
+
+### Delete a category — replace REPLACE_WITH_ID with a real one from "Get all categories"
+DELETE {{baseUrl}}/api/categories/REPLACE_WITH_ID
